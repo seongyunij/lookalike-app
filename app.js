@@ -94,7 +94,7 @@ function fileToImage(file) {
   });
 }
 
-const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.referrerPolicy = 'no-referrer'; i.onload = () => res(i); i.onerror = rej; i.src = src; });
 
 /* ---------------- 탭 ---------------- */
 document.querySelectorAll('.tab').forEach((t) =>
@@ -168,64 +168,86 @@ async function analyze(dataUrl) {
   list.innerHTML = '<p class="hint">AI가 열심히 비교하는 중… 🤔</p>';
   results.scrollIntoView({ behavior: 'smooth' });
 
-  const cands = await getAll();
-  if (!cands.length) {
-    list.innerHTML = '<p class="hint">아직 후보가 없어요! <b>후보 관리</b> 탭에서 연예인·캐릭터 사진을 먼저 추가해주세요.</p>';
-    return;
-  }
-
   let me;
   try { me = await embed(dataUrl); } catch { list.innerHTML = '<p class="hint">AI 모델이 아직 준비되지 않았어요.</p>'; return; }
 
-  // 같은 이름의 사진이 여러 장이면, 가장 비슷한 사진과 평균을 섞어서 점수 계산
-  const byName = new Map();
-  for (const c of cands) {
-    const sim = cosine(me, c.embedding);
-    const g = byName.get(c.name) || { name: c.name, category: c.category, sims: [], best: null, bestSim: -1 };
-    g.sims.push(sim);
-    if (sim > g.bestSim) { g.bestSim = sim; g.best = c.image; }
-    byName.set(c.name, g);
+  const groups = [];
+  // 1) 기본 후보: 카테고리별로 "이름(텍스트)과의 유사도" + "대표 사진과의 유사도"를 합산
+  for (const [category, items] of builtinByCategory(await builtinReady)) {
+    const wText = KOREAN.has(category) ? 0.3 : 0.5; // 한국 스타는 AI가 이름을 잘 몰라서 사진 비중↑
+    const zt = zscores(items.map((c) => cosine(me, c.t)));
+    const zi = zscores(items.map((c) => cosine(me, c.i)));
+    const scored = items.map((c, k) => ({ name: c.name, img: c.img, score: wText * zt[k] + (1 - wText) * zi[k] }));
+    groups.push({ category, ranked: rankGroup(scored) });
   }
-  const ranked = [...byName.values()]
-    .map((g) => ({ ...g, score: 0.7 * g.bestSim + 0.3 * (g.sims.reduce((a, b) => a + b, 0) / g.sims.length) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
 
-  lastResult = { me: dataUrl, ranked };
+  // 2) 내가 직접 추가한 후보 (같은 이름 사진이 여러 장이면 가장 비슷한 사진 기준)
+  const mine = await getAll();
+  if (mine.length) {
+    const byName = new Map();
+    for (const c of mine) {
+      const sim = cosine(me, c.embedding);
+      const g = byName.get(c.name);
+      if (!g || sim > g.sim) byName.set(c.name, { name: c.name, img: c.image, sim });
+    }
+    const arr = [...byName.values()];
+    const z = arr.length > 2 ? zscores(arr.map((g) => g.sim)) : arr.map((g) => (g.sim - 0.6) * 10);
+    groups.push({ category: '내가 추가한 후보', ranked: rankGroup(arr.map((g, k) => ({ ...g, score: z[k] }))) });
+  }
+
+  lastResult = { me: dataUrl, groups };
   list.innerHTML = '';
-  ranked.forEach((r, i) => {
-    const pct = toPercent(r.score);
+  groups.forEach((g, gi) => {
+    const [top, ...rest] = g.ranked;
     const el = document.createElement('div');
-    el.className = 'result' + (i === 0 ? ' first' : '');
+    el.className = 'result';
     el.innerHTML = `
-      <img alt="" />
+      <img alt="" crossorigin="anonymous" referrerpolicy="no-referrer" />
       <div class="info">
-        <div class="rank">${['🥇 1위', '🥈 2위', '🥉 3위'][i]}</div>
-        <div class="name"></div>
         <div class="cat"></div>
-        <div class="bar"><span style="width:${pct}%"></span></div>
-        <div><span class="pct">${pct}%</span> 닮음</div>
-        ${i === 0 ? `<div class="comment">${comment(pct)}</div>` : ''}
+        <div class="name"></div>
+        <div class="bar"><span style="width:${top.pct}%"></span></div>
+        <div><span class="pct">${top.pct}%</span> 닮음</div>
+        <div class="comment">${comment(top.pct, g.category)}</div>
+        <div class="rank"></div>
+        <button class="btn small save">결과 이미지 저장</button>
       </div>`;
-    el.querySelector('img').src = r.best;
-    el.querySelector('.name').textContent = r.name;
-    el.querySelector('.cat').textContent = r.category;
+    el.querySelector('img').src = top.img;
+    el.querySelector('.cat').textContent = g.category;
+    el.querySelector('.name').textContent = g.category === '동물' ? `${top.name}상` : top.name;
+    el.querySelector('.rank').textContent = rest.map((r, i) => `${i + 2}위 ${r.name} ${r.pct}%`).join(' · ');
+    el.querySelector('.save').addEventListener('click', () => saveImage(gi));
     list.appendChild(el);
   });
 }
 
-// CLIP 유사도(대략 0.5~0.95)를 보기 좋은 퍼센트로 변환
-function toPercent(sim) {
-  const p = ((sim - 0.5) / (0.92 - 0.5)) * 100;
-  return Math.round(Math.max(5, Math.min(99, p)));
+const KOREAN = new Set(['한국 연예인', '한국 배우']);
+
+function zscores(arr) {
+  const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const sd = Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length) || 1;
+  return arr.map((x) => (x - m) / sd);
 }
 
-function comment(p) {
-  if (p >= 85) return '🤯 이 정도면 도플갱어! 혹시 본인 아니에요?';
-  if (p >= 70) return '😲 길에서 사인 요청 받을 수도 있겠는데요?';
-  if (p >= 55) return '😆 분위기가 꽤 비슷해요!';
-  if (p >= 40) return '🙂 자세히 보면 살짝 닮았어요.';
-  return '🤔 AI도 고민 많이 했어요… 이게 최선!';
+// 점수 → 상위 3개 + 보기 좋은 퍼센트 (평균보다 얼마나 튀게 닮았는지 기준)
+function rankGroup(scored) {
+  const z = scored.length > 2 ? zscores(scored.map((s) => s.score)) : scored.map((s) => s.score);
+  return scored
+    .map((s, k) => ({ ...s, pct: Math.round(Math.max(30, Math.min(98, 55 + 12 * z[k]))) }))
+    .sort((a, b) => b.pct - a.pct || b.score - a.score)
+    .slice(0, 3);
+}
+
+function comment(p, category) {
+  if (category === '동물') {
+    if (p >= 85) return '🐾 빼박이에요. 전생에 이 동물이었을지도?';
+    if (p >= 70) return '🐾 친구들이 다 인정할 동물상!';
+    return '🐾 은은하게 풍기는 동물상이에요.';
+  }
+  if (p >= 90) return '🤯 이 정도면 도플갱어! 혹시 본인 아니에요?';
+  if (p >= 80) return '😲 길에서 사인 요청 받을 수도 있겠는데요?';
+  if (p >= 70) return '😆 분위기가 꽤 비슷해요!';
+  return '🙂 자세히 보면 살짝 닮았어요.';
 }
 
 $('btnRetry').addEventListener('click', () => {
@@ -235,32 +257,67 @@ $('btnRetry').addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-// 내 사진 + 1위 사진을 나란히 붙인 결과 이미지 저장
-$('btnSave').addEventListener('click', async () => {
-  if (!lastResult) return;
-  const top = lastResult.ranked[0];
-  const [a, b] = await Promise.all([loadImg(lastResult.me), loadImg(top.best)]);
-  const c = document.createElement('canvas');
-  const S = 400, P = 24;
-  c.width = S * 2 + P * 3;
-  c.height = S + 150;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#fff7f0';
-  ctx.fillRect(0, 0, c.width, c.height);
-  ctx.drawImage(a, P, P, S, S);
-  ctx.drawImage(b, S + P * 2, P, S, S);
-  ctx.fillStyle = '#2b2230';
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 34px "Malgun Gothic", sans-serif';
-  ctx.fillText(`나 ≈ ${top.name}  (${toPercent(top.score)}% 닮음)`, c.width / 2, S + P + 60);
-  ctx.font = '22px "Malgun Gothic", sans-serif';
-  ctx.fillStyle = '#7a6f80';
-  ctx.fillText('닮은꼴 찾기', c.width / 2, S + P + 104);
-  const link = document.createElement('a');
-  link.download = `닮은꼴_${top.name}.png`;
-  link.href = c.toDataURL('image/png');
-  link.click();
-});
+// 내 사진 + 해당 카테고리 1위 사진을 나란히 붙인 결과 이미지 저장
+async function saveImage(groupIndex) {
+  const g = lastResult.groups[groupIndex];
+  const top = g.ranked[0];
+  const label = g.category === '동물' ? `${top.name}상` : top.name;
+  try {
+    const [a, b] = await Promise.all([loadImg(lastResult.me), loadImg(top.img)]);
+    const c = document.createElement('canvas');
+    const S = 400, P = 24;
+    c.width = S * 2 + P * 3;
+    c.height = S + 150;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff7f0';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(a, P, P, S, S);
+    // 상대 사진은 가운데를 정사각형으로 잘라서
+    const s = Math.min(b.naturalWidth, b.naturalHeight);
+    ctx.drawImage(b, (b.naturalWidth - s) / 2, (b.naturalHeight - s) / 2, s, s, S + P * 2, P, S, S);
+    ctx.fillStyle = '#2b2230';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 34px "Malgun Gothic", sans-serif';
+    ctx.fillText(`나 ≈ ${label}  (${top.pct}% 닮음)`, c.width / 2, S + P + 60);
+    ctx.font = '22px "Malgun Gothic", sans-serif';
+    ctx.fillStyle = '#7a6f80';
+    ctx.fillText(`닮은꼴 찾기 · ${g.category}`, c.width / 2, S + P + 104);
+    const link = document.createElement('a');
+    link.download = `닮은꼴_${label}.png`;
+    link.href = c.toDataURL('image/png');
+    link.click();
+  } catch (e) {
+    console.error(e);
+    alert('이미지를 만들지 못했어요. 화면을 캡처해서 공유해주세요!');
+  }
+}
+
+/* ---------------- 기본 후보 (candidates.json) ---------------- */
+function unpack(b64, scale) {
+  const bin = atob(b64);
+  const v = new Float32Array(bin.length);
+  for (let k = 0; k < bin.length; k++) {
+    const x = bin.charCodeAt(k);
+    v[k] = ((x > 127 ? x - 256 : x) / 127) * scale;
+  }
+  return v;
+}
+
+const builtinReady = fetch('candidates.json')
+  .then((r) => r.json())
+  .then((d) =>
+    d.candidates.map((c) => ({ name: c.name, category: c.category, img: c.img, t: unpack(c.t, c.ts), i: unpack(c.i, c.is) }))
+  )
+  .catch((e) => { console.error(e); return []; });
+
+function builtinByCategory(list) {
+  const m = new Map();
+  for (const c of list) {
+    if (!m.has(c.category)) m.set(c.category, []);
+    m.get(c.category).push(c);
+  }
+  return m;
+}
 
 /* ---------------- 후보 관리 ---------------- */
 $('candFiles').addEventListener('change', async (e) => {

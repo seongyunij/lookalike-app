@@ -4,3 +4,14 @@
 모든 분석은 브라우저 안에서 이뤄지고 사진은 업로드되지 않는다.
 
 로컬 실행: `start.bat` 더블클릭 → http://localhost:8765
+
+## 기본 후보
+연예인·배우·해외 스타·캐릭터·동물 약 230개가 `candidates.json`에 들어 있다.
+후보마다 CLIP 텍스트 임베딩(이름)과 위키백과 대표 사진의 이미지 임베딩을 미리 계산해 두었고, 사진은 위키백과에서 바로 불러온다.
+
+후보를 바꾸려면 `tools/candidates_source.py`를 고친 뒤 다시 생성한다:
+
+```
+pip install onnxruntime tokenizers numpy pillow requests
+python tools/build_candidates.py <CLIP 모델 폴더>
+```

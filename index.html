@@ -9,10 +9,10 @@
 <body>
   <header class="top">
     <h1>🔍 닮은꼴 찾기</h1>
-    <p class="sub">사진 한 장이면 AI가 닮은꼴을 찾아줘요</p>
+    <p class="sub">사진 한 장이면 연예인·배우·캐릭터·동물 닮은꼴을 AI가 찾아줘요</p>
     <nav class="tabs">
       <button class="tab active" data-tab="find">닮은꼴 찾기</button>
-      <button class="tab" data-tab="manage">후보 관리 <span id="count" class="badge">0</span></button>
+      <button class="tab" data-tab="manage">내 후보 추가 <span id="count" class="badge">0</span></button>
     </nav>
   </header>
 
@@ -35,14 +35,13 @@
           <input id="fileInput" type="file" accept="image/*" hidden />
         </label>
       </div>
-      <p class="hint">얼굴이 동그라미 안에 꽉 차게 찍을수록 정확해요.</p>
+      <p class="hint">얼굴이 동그라미 안에 꽉 차게, 정면으로 찍을수록 정확해요.</p>
     </section>
 
     <section id="results" class="card" hidden>
-      <h2>결과</h2>
+      <h2>나의 닮은꼴 결과</h2>
       <div id="resultList"></div>
       <div class="row">
-        <button id="btnSave" class="btn">결과 이미지 저장</button>
         <button id="btnRetry" class="btn">다시 하기</button>
       </div>
     </section>
@@ -51,8 +50,8 @@
   <!-- 후보 관리 -->
   <main id="tab-manage" class="panel" hidden>
     <section class="card">
-      <h2>후보 추가</h2>
-      <p class="hint">연예인·배우·애니 캐릭터 사진을 넣어두면 그중에서 닮은꼴을 찾아요. 같은 인물 사진을 여러 장 넣으면 더 정확해져요.</p>
+      <h2>후보 직접 추가 (선택)</h2>
+      <p class="hint">기본으로 연예인·배우·해외 스타·캐릭터·동물 220여 개가 들어 있어요. 목록에 없는 사람(예: 반 친구, 선생님)이나 캐릭터를 넣고 싶을 때만 추가하세요. 같은 인물 사진을 여러 장 넣으면 더 정확해져요.</p>
       <input id="candName" class="input" placeholder="이름 (예: 짱구, 김OO)" maxlength="40" />
       <select id="candCat" class="input">
         <option>연예인</option>
@@ -70,7 +69,7 @@
 
     <section class="card">
       <div class="row between">
-        <h2>후보 목록</h2>
+        <h2>내가 추가한 후보</h2>
         <div class="row">
           <button id="btnExport" class="btn small">내보내기</button>
           <label class="btn small">
