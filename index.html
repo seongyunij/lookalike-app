@@ -3,7 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>닮은꼴 찾기</title>
+  <title>닮은꼴 찾기 - AI 연예인·캐릭터·동물상 닮은꼴 테스트</title>
+  <meta name="description" content="사진 한 장으로 나와 닮은 연예인, 배우, 해외 스타, 애니 캐릭터, 동물상을 AI가 찾아줘요. 사진은 서버에 올라가지 않고 내 폰 안에서만 분석돼요." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="너는 누구 닮았어? 🔍 AI 닮은꼴 찾기" />
+  <meta property="og:description" content="사진 한 장으로 닮은 연예인·배우·캐릭터·동물상 찾기" />
+  <meta property="og:image" content="https://seongyunij.github.io/lookalike-app/og.png" />
+  <meta property="og:url" content="https://seongyunij.github.io/lookalike-app/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#ff6b6b" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -48,14 +56,24 @@
           <button id="btnEditOk" class="btn primary">이걸로 분석하기</button>
         </div>
       </div>
-      <p class="hint">얼굴이 동그라미 안에 꽉 차게, 정면으로 찍을수록 정확해요.</p>
+      <p class="hint">얼굴이 동그라미 안에 꽉 차게, 정면으로 찍을수록 정확해요. PC에서는 사진을 위 상자에 끌어다 놓아도 돼요.</p>
+      <div class="gender">
+        <span class="hint">비교할 스타</span>
+        <button class="gender-btn" data-g="all">전체</button>
+        <button class="gender-btn" data-g="m">남자 스타</button>
+        <button class="gender-btn" data-g="f">여자 스타</button>
+      </div>
     </section>
 
     <section id="results" class="card" hidden>
       <h2>나의 닮은꼴 결과</h2>
       <div id="resultList"></div>
-      <div class="row">
-        <button id="btnRetry" class="btn">다시 하기</button>
+      <div class="share-box">
+        <button id="btnStory" class="btn primary block">📸 인스타 스토리용 결과 이미지 만들기</button>
+        <div class="row">
+          <button id="btnShareLink" class="btn">🔗 친구에게 링크 공유</button>
+          <button id="btnRetry" class="btn">🔄 다시 하기</button>
+        </div>
       </div>
     </section>
   </main>
@@ -96,7 +114,19 @@
     </section>
   </main>
 
-  <footer class="foot">사진은 이 기기 안에서만 분석되고 어디에도 업로드되지 않아요.</footer>
+  <section class="card faq">
+    <h2>자주 묻는 질문</h2>
+    <details><summary>내 사진이 서버에 저장되나요?</summary><p>아니요. AI 분석은 전부 지금 쓰고 있는 폰·PC 브라우저 안에서 이루어지고, 사진은 어디에도 업로드되지 않아요.</p></details>
+    <details><summary>결과가 정확한가요?</summary><p>재미로 즐기는 테스트예요. AI(CLIP)가 얼굴 분위기, 머리 스타일, 표정 등을 종합해 비슷한 정도를 계산해요. 각도·조명·표정에 따라 결과가 달라질 수 있어요.</p></details>
+    <details><summary>어떤 후보가 들어 있나요?</summary><p>한국 연예인·배우, 해외 스타, 애니메이션·게임 캐릭터, 동물 230여 개가 들어 있어요. 목록에 없는 사람은 '내 후보 추가' 탭에서 직접 넣을 수 있어요.</p></details>
+    <details><summary>처음 열 때 왜 오래 걸리나요?</summary><p>AI 모델(약 90MB)을 처음 한 번만 내려받아요. 와이파이에서 여는 걸 추천해요. 다음부터는 빠르게 열려요.</p></details>
+  </section>
+
+  <footer class="foot">
+    <p>사진은 이 기기 안에서만 분석되고 어디에도 업로드되지 않아요. 결과는 재미로만 봐주세요.</p>
+    <p>인물·캐릭터·동물 사진 출처: 위키백과(Wikipedia/Wikimedia Commons). 각 결과의 '사진 출처'에서 원본과 라이선스를 확인할 수 있어요.</p>
+    <p><a href="privacy.html">개인정보처리방침</a></p>
+  </footer>
 
   <canvas id="work" hidden></canvas>
   <script type="module" src="app.js"></script>

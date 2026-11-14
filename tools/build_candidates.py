@@ -118,6 +118,11 @@ def pack(v):
 
 print("tokenizer check:", tok.encode("a photo of a cat.").ids)
 
+# 성별 필터용: 위키 사진이 남자/여자 중 어느 쪽에 가까운지 (사람 카테고리만)
+G_MAN = norm(np.mean([text_embed(p) for p in ["a photo of a man.", "a photo of a male celebrity.", "a portrait of a man."]], axis=0))
+G_WOMAN = norm(np.mean([text_embed(p) for p in ["a photo of a woman.", "a photo of a female celebrity.", "a portrait of a woman."]], axis=0))
+GENDER_FIX = {"슈가": "m", "진": "m", "뷔": "m", "지민": "m"}  # 필요 시 수동 보정
+
 THUMBS = wiki_thumbs([w or en for _, _, items in CATEGORIES for _, en, w in items])
 out = []
 report = []
@@ -132,7 +137,7 @@ for cat, kind, items in CATEGORIES:
                 img_e = image_embed(fetch_image(thumb))
             except Exception as e:  # noqa: BLE001
                 print("  이미지 실패:", ko, e)
-        entries.append(dict(ko=ko, en=en, thumb=thumb, t=t, i=img_e))
+        entries.append(dict(ko=ko, en=en, wiki=wiki or en, thumb=thumb, t=t, i=img_e))
 
     # 검증: 위키 사진을 보여줬을 때 AI가 같은 카테고리에서 그 이름을 몇 위로 고르는지
     T = np.stack([e["t"] for e in entries])
@@ -151,8 +156,10 @@ for cat, kind, items in CATEGORIES:
         if e["i"] is None:  # 사진이 없으면 결과 화면에 보여줄 수 없으니 제외
             continue
         tb, ts = pack(e["t"])
-        rec = {"name": e["ko"], "en": e["en"], "category": cat, "img": e["thumb"], "t": tb, "ts": ts}
+        rec = {"name": e["ko"], "en": e["en"], "wiki": e["wiki"], "category": cat, "img": e["thumb"], "t": tb, "ts": ts}
         rec["i"], rec["is"] = pack(e["i"])
+        if kind == "person":
+            rec["g"] = GENDER_FIX.get(e["ko"]) or ("m" if float(e["i"] @ G_MAN) > float(e["i"] @ G_WOMAN) else "f")
         out.append(rec)
 
 dest = ROOT / "candidates.json"

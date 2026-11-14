@@ -152,6 +152,20 @@ $('fileInput').addEventListener('change', async (e) => {
   openEditor(await fileToImage(file, true));
 });
 
+// PC: 사진 파일을 상자에 끌어다 놓기
+['dragenter', 'dragover'].forEach((t) => document.querySelector('.camera-box').addEventListener(t, (e) => {
+  e.preventDefault();
+  document.querySelector('.camera-box').classList.add('drop');
+}));
+['dragleave', 'drop'].forEach((t) => document.querySelector('.camera-box').addEventListener(t, () => document.querySelector('.camera-box').classList.remove('drop')));
+document.querySelector('.camera-box').addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/'));
+  if (!file) return;
+  stopCamera();
+  openEditor(await fileToImage(file, true));
+});
+
 /* ---------------- 사진 위치·크기 조정 (원 안에 얼굴 맞추기) ---------------- */
 // 원(가이드)은 상자의 가운데 76% 영역. 분석에는 원을 감싸는 정사각형 부분만 사용.
 const GUIDE = 0.76;
@@ -281,6 +295,8 @@ $('btnEditOk').addEventListener('click', () => {
 /* ---------------- 닮은꼴 분석 ---------------- */
 let lastResult = null;
 
+let lastMe = null; // 마지막으로 분석한 내 사진의 임베딩 (성별 필터 바꿀 때 재사용)
+
 async function analyze(dataUrl) {
   video.hidden = true;
   const preview = $('preview');
@@ -294,16 +310,35 @@ async function analyze(dataUrl) {
   list.innerHTML = '<p class="hint">AI가 열심히 비교하는 중… 🤔</p>';
   results.scrollIntoView({ behavior: 'smooth' });
 
-  let me;
-  try { me = await embed(dataUrl); } catch { list.innerHTML = '<p class="hint">AI 모델이 아직 준비되지 않았어요.</p>'; return; }
+  try { lastMe = { dataUrl, vec: await embed(dataUrl) }; } catch { list.innerHTML = '<p class="hint">AI 모델이 아직 준비되지 않았어요.</p>'; return; }
+  await renderResults();
+}
 
+// 성별 필터: all | m | f  (사람 카테고리에만 적용)
+let genderFilter = 'all';
+try { genderFilter = localStorage.getItem('gender') || 'all'; } catch {}
+document.querySelectorAll('.gender-btn').forEach((b) => {
+  b.classList.toggle('active', b.dataset.g === genderFilter);
+  b.addEventListener('click', () => {
+    genderFilter = b.dataset.g;
+    try { localStorage.setItem('gender', genderFilter); } catch {}
+    document.querySelectorAll('.gender-btn').forEach((x) => x.classList.toggle('active', x === b));
+    if (lastMe && !$('results').hidden) renderResults();
+  });
+});
+
+async function renderResults() {
+  const me = lastMe.vec;
+  const list = $('resultList');
   const groups = [];
   // 1) 기본 후보: 카테고리별로 "이름(텍스트)과의 유사도" + "대표 사진과의 유사도"를 합산
-  for (const [category, items] of builtinByCategory(await builtinReady)) {
+  for (const [category, all] of builtinByCategory(await builtinReady)) {
+    const items = genderFilter === 'all' ? all : all.filter((c) => !c.g || c.g === genderFilter);
+    if (items.length < 3) continue;
     const wText = KOREAN.has(category) ? 0.3 : 0.5; // 한국 스타는 AI가 이름을 잘 몰라서 사진 비중↑
     const zt = zscores(items.map((c) => cosine(me, c.t)));
     const zi = zscores(items.map((c) => cosine(me, c.i)));
-    const scored = items.map((c, k) => ({ name: c.name, img: c.img, score: wText * zt[k] + (1 - wText) * zi[k] }));
+    const scored = items.map((c, k) => ({ name: c.name, img: c.img, wiki: c.wiki, score: wText * zt[k] + (1 - wText) * zi[k] }));
     groups.push({ category, ranked: rankGroup(scored) });
   }
 
@@ -321,7 +356,7 @@ async function analyze(dataUrl) {
     groups.push({ category: '내가 추가한 후보', ranked: rankGroup(arr.map((g, k) => ({ ...g, score: z[k] }))) });
   }
 
-  lastResult = { me: dataUrl, groups };
+  lastResult = { me: lastMe.dataUrl, groups };
   list.innerHTML = '';
   groups.forEach((g, gi) => {
     const [top, ...rest] = g.ranked;
@@ -336,16 +371,167 @@ async function analyze(dataUrl) {
         <div><span class="pct">${top.pct}%</span> 닮음</div>
         <div class="comment">${comment(top.pct, g.category)}</div>
         <div class="rank"></div>
-        <button class="btn small save">결과 이미지 저장</button>
+        <div class="row card-actions">
+          <button class="btn small save">이 결과만 저장</button>
+          <a class="credit" target="_blank" rel="noopener" hidden>사진 출처</a>
+        </div>
       </div>`;
     el.querySelector('img').src = top.img;
     el.querySelector('.cat').textContent = g.category;
-    el.querySelector('.name').textContent = g.category === '동물' ? `${top.name}상` : top.name;
+    el.querySelector('.name').textContent = displayName(top, g.category);
     el.querySelector('.rank').textContent = rest.map((r, i) => `${i + 2}위 ${r.name} ${r.pct}%`).join(' · ');
     el.querySelector('.save').addEventListener('click', () => saveImage(gi));
+    if (top.wiki) {
+      const a = el.querySelector('.credit');
+      a.href = 'https://en.wikipedia.org/wiki/' + encodeURIComponent(top.wiki.replace(/ /g, '_'));
+      a.hidden = false;
+    }
     list.appendChild(el);
   });
 }
+
+const displayName = (r, category) => (category === '동물' ? `${r.name}상` : r.name);
+
+/* ---------------- 인스타 스토리용 결과 이미지 (1080×1920) ---------------- */
+const SITE_URL = 'seongyunij.github.io/lookalike-app';
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawCover(ctx, img, x, y, w, h) {
+  const s = Math.min(img.naturalWidth / w, img.naturalHeight / h);
+  const sw = w * s, sh = h * s;
+  ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, x, y, w, h);
+}
+
+async function makeStoryImage() {
+  const { me, groups } = lastResult;
+  const W = 1080, H = 1920;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#ffb199');
+  grad.addColorStop(1, '#a18cd1');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 76px ${FONT}`;
+  ctx.fillText('🔍 나의 닮은꼴 결과', W / 2, 150);
+
+  // 내 사진 (원형)
+  const meImg = await loadImg(me);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(W / 2, 400, 190, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  drawCover(ctx, meImg, W / 2 - 190, 210, 380, 380);
+  ctx.restore();
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(W / 2, 400, 190, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 카테고리별 1위 카드
+  const shown = groups.slice(0, 6);
+  const top = 650, gap = 22;
+  const cardH = Math.min(190, (H - top - 190 - gap * (shown.length - 1)) / shown.length);
+  const imgs = await Promise.all(shown.map((g) => loadImg(g.ranked[0].img).catch(() => null)));
+  shown.forEach((g, k) => {
+    const r = g.ranked[0];
+    const y = top + k * (cardH + gap);
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    roundRect(ctx, 70, y, W - 140, cardH, 36);
+    ctx.fill();
+    const s = cardH - 30;
+    if (imgs[k]) {
+      ctx.save();
+      roundRect(ctx, 90, y + 15, s, s, 26);
+      ctx.clip();
+      drawCover(ctx, imgs[k], 90, y + 15, s, s);
+      ctx.restore();
+    }
+    const tx = 90 + s + 36;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#845ef7';
+    ctx.font = `700 34px ${FONT}`;
+    ctx.fillText(g.category, tx, y + cardH / 2 - 28);
+    ctx.fillStyle = '#2b2230';
+    ctx.font = `800 54px ${FONT}`;
+    let name = displayName(r, g.category);
+    while (ctx.measureText(name).width > W - 140 - (tx - 70) - 190 && name.length > 2) name = name.slice(0, -2) + '…';
+    ctx.fillText(name, tx, y + cardH / 2 + 38);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = `800 60px ${FONT}`;
+    ctx.fillText(`${r.pct}%`, W - 100, y + cardH / 2 + 22);
+  });
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 48px ${FONT}`;
+  ctx.fillText('너는 누구 닮았어? 👇', W / 2, H - 120);
+  ctx.font = `700 38px ${FONT}`;
+  ctx.fillText(SITE_URL, W / 2, H - 60);
+  return c;
+}
+
+const canvasToBlob = (c) => new Promise((res) => c.toBlob(res, 'image/png'));
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+$('btnStory').addEventListener('click', async () => {
+  if (!lastResult) return;
+  const btn = $('btnStory');
+  btn.disabled = true;
+  try {
+    const blob = await canvasToBlob(await makeStoryImage());
+    const file = new File([blob], '닮은꼴_결과.png', { type: 'image/png' });
+    // 폰: 공유 시트(인스타그램·카톡 등)로 바로 보내기 / PC: 파일 저장
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: '나의 닮은꼴 결과' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    downloadBlob(blob, file.name);
+  } catch (e) {
+    console.error(e);
+    alert('이미지를 만들지 못했어요. 화면을 캡처해서 공유해주세요!');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('btnShareLink').addEventListener('click', async () => {
+  const url = 'https://' + SITE_URL + '/';
+  const top = lastResult?.groups[0]?.ranked[0];
+  const text = top ? `나 ${top.name} ${top.pct}% 닮았대 ㅋㅋ 너는 누구 닮았어?` : '사진 한 장으로 닮은꼴 연예인·캐릭터·동물 찾기!';
+  if (navigator.share) {
+    try { await navigator.share({ title: '닮은꼴 찾기', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text} ${url}`);
+    alert('링크를 복사했어요! 친구에게 붙여넣기 해주세요.');
+  } catch {
+    prompt('아래 링크를 복사해주세요', url);
+  }
+});
 
 const KOREAN = new Set(['한국 연예인', '한국 배우']);
 
@@ -432,7 +618,7 @@ function unpack(b64, scale) {
 const builtinReady = fetch('candidates.json')
   .then((r) => r.json())
   .then((d) =>
-    d.candidates.map((c) => ({ name: c.name, category: c.category, img: c.img, t: unpack(c.t, c.ts), i: unpack(c.i, c.is) }))
+    d.candidates.map((c) => ({ name: c.name, category: c.category, img: c.img, wiki: c.wiki, g: c.g, t: unpack(c.t, c.ts), i: unpack(c.i, c.is) }))
   )
   .catch((e) => { console.error(e); return []; });
 

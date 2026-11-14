@@ -79,3 +79,22 @@ h2 { margin: 0 0 12px; font-size: 18px; }
 
 .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 20px; }
 .camera-box.editing .guide { box-shadow: 0 0 0 999px rgba(0,0,0,.45); border-color: #fff; }
+
+.gender { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.gender .hint { margin: 0 4px 0 0; }
+.gender-btn { border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.gender-btn.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.share-box { margin-top: 12px; }
+.share-box .btn.block { margin-bottom: 8px; padding: 14px; font-size: 16px; }
+.card-actions { margin-top: 8px; gap: 10px; }
+.card-actions .save { margin-top: 0; }
+.credit { font-size: 12px; color: var(--muted); }
+.camera-box.drop { outline: 4px dashed var(--accent); outline-offset: -8px; }
+.faq details { border-top: 1px solid var(--line); padding: 10px 0; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq p { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+.foot p { margin: 4px 0; }
+.foot a { color: var(--muted); }
+
+.policy h3 { font-size: 16px; margin: 18px 0 6px; }
+.policy p { font-size: 14px; line-height: 1.7; }
