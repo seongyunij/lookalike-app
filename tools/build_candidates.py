@@ -24,6 +24,13 @@ from tokenizers import Tokenizer
 
 sys.path.insert(0, str(Path(__file__).parent))
 from candidates_source import CATEGORIES, PROMPTS  # noqa: E402
+from face_gallery import face_crop, face_images, load_index, robust_mean  # noqa: E402
+
+YUNET = sys.argv[2] if len(sys.argv) > 2 else None  # 얼굴 검출 모델 경로 (선택)
+FACE_CROPPED = []
+
+FACE_INDEX = load_index()  # tools/fetch_photos.py 로 모은 얼굴 사진 (없으면 빈 목록)
+FACE_USED = {}
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "tools" / ".cache"
@@ -134,9 +141,18 @@ for cat, kind, items in CATEGORIES:
         img_e = None
         if thumb:
             try:
-                img_e = image_embed(fetch_image(thumb))
+                wimg = fetch_image(thumb)
+                crop = face_crop(wimg, YUNET, allow_multi=True) if (YUNET and kind == "person") else None
+                if crop is not None:
+                    FACE_CROPPED.append(ko)
+                img_e = image_embed(crop if crop is not None else wimg)
             except Exception as e:  # noqa: BLE001
                 print("  이미지 실패:", ko, e)
+        # 사람: 커먼즈에서 모은 얼굴 사진이 2장 이상이면 그 평균을 대표 이미지 벡터로 사용
+        faces = face_images(wiki or en, FACE_INDEX) if kind == "person" else []
+        if img_e is not None and len(faces) >= 2:
+            img_e, kept = robust_mean([image_embed(im) for _, im in faces])
+            FACE_USED[ko] = len(kept)
         entries.append(dict(ko=ko, en=en, wiki=wiki or en, thumb=thumb, t=t, i=img_e))
 
     # 검증: 위키 사진을 보여줬을 때 AI가 같은 카테고리에서 그 이름을 몇 위로 고르는지
@@ -166,3 +182,5 @@ dest = ROOT / "candidates.json"
 dest.write_text(json.dumps({"model": "Xenova/clip-vit-base-patch32", "candidates": out}, ensure_ascii=False), "utf-8")
 print("\n".join(report))
 print(f"저장: {dest} ({dest.stat().st_size // 1024} KB, {len(out)}개)")
+print(f"위키 사진에서 얼굴만 잘라 쓴 인물: {len(FACE_CROPPED)}명")
+print(f"얼굴 사진 평균을 쓴 인물: {len(FACE_USED)}명 (평균 {np.mean(list(FACE_USED.values())) if FACE_USED else 0:.1f}장)")

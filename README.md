@@ -18,3 +18,8 @@ python tools/build_candidates.py <CLIP 모델 폴더>
 
 ## 배포할 때 주의
 GitHub Pages는 파일을 약 10분간 캐시한다. `app.js`나 `style.css`를 고치면 `index.html`(과 `privacy.html`)의 `?v=숫자`를 1 올려야 사용자에게 새 파일이 바로 적용된다.
+
+## 얼굴 인식
+- 앱: Google MediaPipe BlazeFace(`models/blaze_face_short_range.tflite`, Apache-2.0)로 사용자 사진의 얼굴을 찾아 원 안에 자동으로 맞춘다.
+- 후보 데이터: OpenCV YuNet으로 위키 사진에서 얼굴만 잘라 임베딩한다 (`python tools/build_candidates.py <CLIP 폴더> <yunet.onnx>`).
+- 두 검출기의 상자 크기 차이는 실측(0.817배)으로 보정했다 (`app.js`의 `FACE_BOX_SCALE`).

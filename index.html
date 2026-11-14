@@ -14,7 +14,7 @@
   <meta name="theme-color" content="#ff6b6b" />
   <link rel="icon" type="image/png" href="icon-128.png" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="style.css?v=7" />
 </head>
 <body>
   <header class="top">
@@ -53,7 +53,7 @@
         </label>
       </div>
       <div id="editControls" class="edit-controls" hidden>
-        <p class="hint strong">👆 사진을 끌어서 옮기고, 두 손가락(또는 아래 막대)으로 확대해서 얼굴을 원 안에 꽉 맞춰주세요.</p>
+        <p id="editHint" class="hint strong">👆 사진을 끌어서 옮기고, 두 손가락(또는 아래 막대)으로 확대해서 얼굴을 원 안에 꽉 맞춰주세요.</p>
         <div class="row zoom-row">
           <span>➖</span>
           <input id="zoom" type="range" min="1" max="4" step="0.01" value="1" />
@@ -76,7 +76,7 @@
     <section id="results" class="card" hidden>
       <h2>나의 닮은꼴 결과</h2>
       <div id="resultList"></div>
-      <div class="share-box">
+      <div id="shareBox" class="share-box" hidden>
         <div id="compare" class="compare" hidden></div>
         <button id="btnStory" class="btn primary block">📸 인스타 스토리용 결과 이미지 만들기</button>
         <input id="nick" class="input" placeholder="내 이름·별명 (선택) — 공유 링크에 '○○의 결과'로 표시돼요" maxlength="12" />
@@ -143,6 +143,6 @@
 
   <canvas id="work" hidden></canvas>
   <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js" crossorigin="anonymous"></script>
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>

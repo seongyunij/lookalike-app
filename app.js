@@ -47,6 +47,68 @@ async function embed(dataUrl) {
   return v;
 }
 
+/* ---------------- 얼굴 검출 (Google MediaPipe BlazeFace, 브라우저 안에서 실행) ---------------- */
+const VISION_VER = '0.10.14';
+// 후보 사진은 '얼굴 상자 크기 × 1.7' 정사각형으로 잘라 학습시켰으므로 내 사진도 같은 비율로 맞춤
+// (BlazeFace 상자는 후보 쪽 검출기보다 작게 나오는 편이라 측정한 비율로 보정)
+const FACE_BOX_SCALE = 1.7 / 0.817; // 측정값: BlazeFace 상자 = 후보 쪽(YuNet) 상자의 0.817배 (30장 중앙값)
+const FACE_CY_SHIFT = -0.037; // 측정값: 후보 쪽 자르기 중심이 BlazeFace 상자 중심보다 상자 크기의 3.7% 위
+let faceDetectorP = null;
+function getFaceDetector() {
+  if (!faceDetectorP) {
+    faceDetectorP = (async () => {
+      const { FaceDetector, FilesetResolver } = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VER}/vision_bundle.mjs`);
+      const fileset = await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VISION_VER}/wasm`);
+      return FaceDetector.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: 'models/blaze_face_short_range.tflite' },
+        runningMode: 'IMAGE',
+        minDetectionConfidence: 0.5,
+      });
+    })().catch((e) => { console.error(e); faceDetectorP = null; return null; });
+  }
+  return faceDetectorP;
+}
+getFaceDetector();
+
+// 얼굴 상자 목록(큰 순서). 검출기를 못 불러오면 null(=알 수 없음)
+async function detectFaces(source) {
+  const det = await getFaceDetector();
+  if (!det) return null;
+  try {
+    return det.detect(source).detections.map((d) => d.boundingBox).sort((a, b) => b.width * b.height - a.width * a.height);
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
+}
+
+// 여러 각도로 본 평균 (원본·좌우반전·살짝 확대 2종) → 사진 한 장의 우연한 요소에 덜 흔들림
+async function embedRobust(dataUrl) {
+  const img = await loadImg(dataUrl);
+  const c = document.createElement('canvas');
+  c.width = c.height = IMG_SIZE;
+  const ctx = c.getContext('2d');
+  const variants = [];
+  for (const [flip, zoom] of [[false, 1], [true, 1], [false, 0.9], [true, 0.9]]) {
+    const n = img.naturalWidth, side = n * zoom, o = (n - side) / 2;
+    ctx.save();
+    ctx.clearRect(0, 0, IMG_SIZE, IMG_SIZE);
+    if (flip) { ctx.translate(IMG_SIZE, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(img, o, o, side, side, 0, 0, IMG_SIZE, IMG_SIZE);
+    ctx.restore();
+    variants.push(c.toDataURL('image/jpeg', 0.92));
+  }
+  const vs = [];
+  for (const v of variants) vs.push(await embed(v));
+  const m = new Float32Array(vs[0].length);
+  for (const v of vs) for (let i = 0; i < m.length; i++) m[i] += v[i];
+  let norm = 0;
+  for (const x of m) norm += x * x;
+  norm = Math.sqrt(norm) || 1;
+  for (let i = 0; i < m.length; i++) m[i] /= norm;
+  return m;
+}
+
 const cosine = (a, b) => {
   let s = 0;
   for (let i = 0; i < a.length; i++) s += a[i] * b[i];
@@ -137,11 +199,18 @@ function stopCamera() {
   $('btnCamera').textContent = '카메라 켜기';
 }
 
-$('btnShot').addEventListener('click', () => {
-  // 가이드 원(가운데 76%) 부분만 잘라서 분석
-  const dataUrl = squareCrop(video, video.videoWidth, video.videoHeight, true, 1 / GUIDE);
+$('btnShot').addEventListener('click', async () => {
+  // 찍은 화면 전체(거울 모드)를 조정 화면으로 넘겨 얼굴을 자동으로 원에 맞춤
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  const ctx = c.getContext('2d');
+  ctx.translate(c.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0);
   stopCamera();
-  analyze(dataUrl);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
+  openEditor(await fileToImage(blob, true));
 });
 
 $('fileInput').addEventListener('change', async (e) => {
@@ -194,6 +263,29 @@ function openEditor(img) {
   box.classList.add('editing');
   $('zoom').value = 1;
   applyEdit();
+  autoFit(img);
+}
+
+async function autoFit(img) {
+  const hint = $('editHint');
+  hint.textContent = '😀 얼굴을 찾는 중…';
+  const faces = await detectFaces(img);
+  if (ed.img !== img || editImg.hidden) return;
+  if (!faces) { hint.textContent = '👆 사진을 끌어서 옮기고, 두 손가락(또는 아래 막대)으로 확대해서 얼굴을 원 안에 꽉 맞춰주세요.'; return; }
+  if (!faces.length) { hint.textContent = '🤔 얼굴을 자동으로 못 찾았어요. 사진을 끌고 확대해서 얼굴을 원 안에 맞춰주세요.'; return; }
+  const f = faces[0];
+  const W = box.clientWidth;
+  const side = Math.max(f.width, f.height) * FACE_BOX_SCALE;
+  const cx = f.originX + f.width / 2;
+  const cy = f.originY + f.height / 2 + f.height * FACE_CY_SHIFT;
+  ed.s = Math.max(ed.base, Math.min(ed.base * 4, (W * GUIDE) / side));
+  ed.tx = W / 2 - cx * ed.s;
+  ed.ty = W / 2 - cy * ed.s;
+  $('zoom').value = ed.s / ed.base;
+  applyEdit();
+  hint.textContent = faces.length > 1
+    ? '👥 얼굴이 여러 개라 가장 큰 얼굴에 맞췄어요. 다른 사람이면 끌어서 옮겨주세요.'
+    : '✅ 얼굴을 찾아서 원에 맞췄어요. 필요하면 끌거나 확대해서 조정하세요.';
 }
 
 function closeEditor() {
@@ -297,7 +389,29 @@ let lastResult = null;
 
 let lastMe = null; // 마지막으로 분석한 내 사진의 임베딩 (성별 필터 바꿀 때 재사용)
 
-async function analyze(dataUrl) {
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const STEPS = [
+  ['😀', '얼굴 확인 중', 1200],
+  ['🧠', '얼굴 특징 분석 중 (4가지 각도로)', 1800],
+  ['🔍', '', 1400],
+  ['📊', '결과 정리 중', 800],
+];
+
+function renderSteps(active, pct) {
+  const list = $('resultList');
+  list.innerHTML = `<div class="steps">${STEPS.map(([icon, label], i) =>
+    `<div class="step ${i < active ? 'done' : i === active ? 'now' : ''}"><span>${i < active ? '✅' : icon}</span>${label}${i === active ? '<span class="dots"></span>' : ''}</div>`).join('')}
+    <div class="bar big"><span style="width:${pct}%"></span></div></div>`;
+}
+
+async function runStep(i, work) {
+  const [, , ms] = STEPS[i];
+  renderSteps(i, (i / STEPS.length) * 100);
+  const [res] = await Promise.all([work(), delay(ms)]);
+  return res;
+}
+
+async function analyze(dataUrl, { skipFaceCheck = false } = {}) {
   video.hidden = true;
   const preview = $('preview');
   preview.src = dataUrl;
@@ -307,11 +421,31 @@ async function analyze(dataUrl) {
   const results = $('results');
   const list = $('resultList');
   results.hidden = false;
-  list.innerHTML = '<p class="hint">AI가 열심히 비교하는 중… 🤔</p>';
+  $('shareBox').hidden = true;
   results.scrollIntoView({ behavior: 'smooth' });
+  STEPS[2][1] = `후보 ${(await builtinReady).length}명과 하나씩 비교 중`;
 
-  try { lastMe = { dataUrl, vec: await embed(dataUrl) }; } catch { list.innerHTML = '<p class="hint">AI 모델이 아직 준비되지 않았어요.</p>'; return; }
+  // 1) 얼굴이 제대로 들어왔는지 확인
+  const faces = await runStep(0, async () => (skipFaceCheck ? null : detectFaces(await loadImg(dataUrl))));
+  if (faces && faces.length === 0) {
+    list.innerHTML = `<div class="warn"><b>얼굴을 찾지 못했어요 😢</b><p>얼굴이 원 안에 크게, 정면으로 들어오게 다시 맞추면 결과가 훨씬 정확해져요.</p>
+      <div class="row"><button class="btn primary" id="btnReadjust">다시 맞추기</button><button class="btn" id="btnForce">그래도 분석하기</button></div></div>`;
+    $('btnReadjust').onclick = () => { if (ed.img) openEditor(ed.img); else $('cameraPlaceholder').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    $('btnForce').onclick = () => analyze(dataUrl, { skipFaceCheck: true });
+    return;
+  }
+
+  // 2) 여러 각도 평균으로 특징 추출
+  let vec;
+  try { vec = await runStep(1, () => embedRobust(dataUrl)); } catch (e) { console.error(e); list.innerHTML = '<p class="hint">AI 모델이 아직 준비되지 않았어요. 잠시 후 다시 해주세요.</p>'; return; }
+  lastMe = { dataUrl, vec };
+
+  // 3) 비교, 4) 정리
+  await runStep(2, () => builtinReady);
+  await runStep(3, async () => {});
+  renderSteps(STEPS.length, 100);
   await renderResults();
+  $('shareBox').hidden = false;
 }
 
 // 성별 필터: all | m | f  (사람 카테고리에만 적용)
@@ -368,7 +502,7 @@ async function renderResults() {
         <div class="cat"></div>
         <div class="name"></div>
         <div class="bar"><span style="width:${top.pct}%"></span></div>
-        <div><span class="pct">${top.pct}%</span> 닮음</div>
+        <div><span class="pct">${top.pct}%</span> 닮음 <span class="conf ${confidence(g.ranked).cls}">${confidence(g.ranked).label}</span></div>
         <div class="comment">${comment(top.pct, g.category)}</div>
         <div class="rank"></div>
         <div class="row card-actions">
@@ -389,6 +523,14 @@ async function renderResults() {
     list.appendChild(el);
   });
   renderCompare();
+}
+
+// 1위와 2위 차이로 AI가 얼마나 확신하는지 표시 (차이가 작으면 박빙)
+function confidence(ranked) {
+  const gap = ranked.length > 1 ? ranked[0].pct - ranked[1].pct : 20;
+  if (gap >= 10) return { cls: 'hi', label: 'AI 확신도 높음' };
+  if (gap >= 4) return { cls: 'mid', label: 'AI 확신도 보통' };
+  return { cls: 'lo', label: '2위와 박빙' };
 }
 
 const displayName = (r, category) => (category === '동물' ? `${r.name}상` : r.name);
