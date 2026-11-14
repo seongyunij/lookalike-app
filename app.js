@@ -84,11 +84,11 @@ function squareCrop(source, sw, sh, mirror = false, zoom = 1) {
   return c.toDataURL('image/jpeg', 0.88);
 }
 
-function fileToImage(file) {
+function fileToImage(file, keepUrl = false) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => { resolve(img); URL.revokeObjectURL(url); };
+    img.onload = () => { resolve(img); if (!keepUrl) URL.revokeObjectURL(url); };
     img.onerror = reject;
     img.src = url;
   });
@@ -111,6 +111,7 @@ const video = $('video');
 
 $('btnCamera').addEventListener('click', async () => {
   if (stream) return stopCamera();
+  closeEditor();
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 1280 } },
@@ -137,8 +138,8 @@ function stopCamera() {
 }
 
 $('btnShot').addEventListener('click', () => {
-  // 가이드 원 크기(가운데 76%)에 맞춰 살짝 확대해서 얼굴 위주로 자름
-  const dataUrl = squareCrop(video, video.videoWidth, video.videoHeight, true, 1.25);
+  // 가이드 원(가운데 76%) 부분만 잘라서 분석
+  const dataUrl = squareCrop(video, video.videoWidth, video.videoHeight, true, 1 / GUIDE);
   stopCamera();
   analyze(dataUrl);
 });
@@ -148,8 +149,133 @@ $('fileInput').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!file) return;
   stopCamera();
-  const img = await fileToImage(file);
-  analyze(squareCrop(img, img.naturalWidth, img.naturalHeight));
+  openEditor(await fileToImage(file, true));
+});
+
+/* ---------------- 사진 위치·크기 조정 (원 안에 얼굴 맞추기) ---------------- */
+// 원(가이드)은 상자의 가운데 76% 영역. 분석에는 원을 감싸는 정사각형 부분만 사용.
+const GUIDE = 0.76;
+const box = document.querySelector('.camera-box');
+const editImg = $('editImg');
+const ed = { img: null, s: 1, base: 1, tx: 0, ty: 0, pointers: new Map(), pinch: null };
+
+function openEditor(img) {
+  if (ed.img?.src.startsWith('blob:')) URL.revokeObjectURL(ed.img.src);
+  ed.img = img;
+  const W = box.clientWidth;
+  // 처음엔 사진 짧은 쪽이 원에 딱 맞게
+  ed.base = (W * GUIDE) / Math.min(img.naturalWidth, img.naturalHeight);
+  ed.s = ed.base;
+  ed.tx = (W - img.naturalWidth * ed.s) / 2;
+  ed.ty = (W - img.naturalHeight * ed.s) / 2;
+  editImg.src = img.src;
+  editImg.style.width = img.naturalWidth + 'px';
+  editImg.style.height = img.naturalHeight + 'px';
+  editImg.hidden = false;
+  video.hidden = true;
+  $('preview').hidden = true;
+  $('cameraPlaceholder').hidden = true;
+  $('results').hidden = true;
+  $('editControls').hidden = false;
+  box.classList.add('editing');
+  $('zoom').value = 1;
+  applyEdit();
+}
+
+function closeEditor() {
+  editImg.hidden = true;
+  $('editControls').hidden = true;
+  box.classList.remove('editing');
+  ed.pointers.clear();
+  ed.pinch = null;
+}
+
+// 원 영역이 항상 사진으로 꽉 차도록 위치를 제한
+function clampEdit() {
+  const W = box.clientWidth;
+  const g0 = (W * (1 - GUIDE)) / 2, g1 = g0 + W * GUIDE;
+  const iw = ed.img.naturalWidth * ed.s, ih = ed.img.naturalHeight * ed.s;
+  ed.tx = Math.min(g0, Math.max(g1 - iw, ed.tx));
+  ed.ty = Math.min(g0, Math.max(g1 - ih, ed.ty));
+}
+
+function applyEdit() {
+  clampEdit();
+  editImg.style.transform = `translate(${ed.tx}px, ${ed.ty}px) scale(${ed.s})`;
+}
+
+// (cx, cy) 지점을 기준으로 확대/축소
+function zoomTo(newS, cx, cy) {
+  newS = Math.max(ed.base, Math.min(ed.base * 4, newS));
+  ed.tx = cx - ((cx - ed.tx) * newS) / ed.s;
+  ed.ty = cy - ((cy - ed.ty) * newS) / ed.s;
+  ed.s = newS;
+  $('zoom').value = ed.s / ed.base;
+  applyEdit();
+}
+
+const local = (e) => { const r = box.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+
+box.addEventListener('pointerdown', (e) => {
+  if (editImg.hidden) return;
+  box.setPointerCapture(e.pointerId);
+  ed.pointers.set(e.pointerId, local(e));
+  ed.pinch = null;
+});
+box.addEventListener('pointermove', (e) => {
+  if (editImg.hidden || !ed.pointers.has(e.pointerId)) return;
+  const prev = ed.pointers.get(e.pointerId);
+  const cur = local(e);
+  ed.pointers.set(e.pointerId, cur);
+  if (ed.pointers.size === 1) {
+    ed.tx += cur.x - prev.x;
+    ed.ty += cur.y - prev.y;
+    applyEdit();
+  } else if (ed.pointers.size === 2) {
+    const [a, b] = [...ed.pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (ed.pinch) {
+      ed.tx += mid.x - ed.pinch.mid.x;
+      ed.ty += mid.y - ed.pinch.mid.y;
+      zoomTo(ed.s * (dist / ed.pinch.dist), mid.x, mid.y);
+    }
+    ed.pinch = { dist, mid };
+  }
+});
+const endPointer = (e) => { ed.pointers.delete(e.pointerId); ed.pinch = null; };
+box.addEventListener('pointerup', endPointer);
+box.addEventListener('pointercancel', endPointer);
+box.addEventListener('wheel', (e) => {
+  if (editImg.hidden) return;
+  e.preventDefault();
+  const p = local(e);
+  zoomTo(ed.s * Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+}, { passive: false });
+
+$('zoom').addEventListener('input', (e) => {
+  const W = box.clientWidth;
+  zoomTo(ed.base * Number(e.target.value), W / 2, W / 2);
+});
+
+$('btnEditCancel').addEventListener('click', () => {
+  closeEditor();
+  $('cameraPlaceholder').hidden = false;
+});
+
+$('btnEditOk').addEventListener('click', () => {
+  const W = box.clientWidth;
+  const g0 = (W * (1 - GUIDE)) / 2;
+  const c = $('work');
+  c.width = c.height = IMG_SIZE;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
+  // 원을 감싸는 정사각형 영역 → 원본 사진 좌표
+  ctx.drawImage(ed.img, (g0 - ed.tx) / ed.s, (g0 - ed.ty) / ed.s, (W * GUIDE) / ed.s, (W * GUIDE) / ed.s, 0, 0, IMG_SIZE, IMG_SIZE);
+  const dataUrl = c.toDataURL('image/jpeg', 0.9);
+  closeEditor();
+  analyze(dataUrl);
 });
 
 /* ---------------- 닮은꼴 분석 ---------------- */

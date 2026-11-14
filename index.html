@@ -24,6 +24,7 @@
       <div class="camera-box">
         <video id="video" playsinline muted></video>
         <img id="preview" alt="" hidden />
+        <img id="editImg" class="edit-img" alt="" hidden draggable="false" />
         <div class="guide"></div>
         <div id="cameraPlaceholder" class="placeholder">📷<br />카메라를 켜거나 사진을 올려주세요</div>
       </div>
@@ -34,6 +35,18 @@
           사진 올리기
           <input id="fileInput" type="file" accept="image/*" hidden />
         </label>
+      </div>
+      <div id="editControls" class="edit-controls" hidden>
+        <p class="hint strong">👆 사진을 끌어서 옮기고, 두 손가락(또는 아래 막대)으로 확대해서 얼굴을 원 안에 꽉 맞춰주세요.</p>
+        <div class="row zoom-row">
+          <span>➖</span>
+          <input id="zoom" type="range" min="1" max="4" step="0.01" value="1" />
+          <span>➕</span>
+        </div>
+        <div class="row">
+          <button id="btnEditCancel" class="btn">취소</button>
+          <button id="btnEditOk" class="btn primary">이걸로 분석하기</button>
+        </div>
       </div>
       <p class="hint">얼굴이 동그라미 안에 꽉 차게, 정면으로 찍을수록 정확해요.</p>
     </section>
