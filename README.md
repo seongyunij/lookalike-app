@@ -15,3 +15,6 @@
 pip install onnxruntime tokenizers numpy pillow requests
 python tools/build_candidates.py <CLIP 모델 폴더>
 ```
+
+## 배포할 때 주의
+GitHub Pages는 파일을 약 10분간 캐시한다. `app.js`나 `style.css`를 고치면 `index.html`(과 `privacy.html`)의 `?v=숫자`를 1 올려야 사용자에게 새 파일이 바로 적용된다.
