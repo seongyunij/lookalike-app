@@ -537,6 +537,47 @@ $('btnShareLink').addEventListener('click', async () => {
   }
 });
 
+/* ---------------- 카카오톡 공유 ---------------- */
+// JavaScript 키는 웹에 공개되는 키 (카카오 개발자 콘솔에 등록한 도메인에서만 동작)
+const KAKAO_JS_KEY = '02b72b1c17405579051dbf3e6e210d7c';
+
+function kakaoReady() {
+  const K = window.Kakao;
+  if (!K) return null;
+  if (!K.isInitialized()) K.init(KAKAO_JS_KEY);
+  return K;
+}
+
+$('btnKakao').addEventListener('click', () => {
+  const K = kakaoReady();
+  if (!K) { alert('카카오톡 공유를 불러오지 못했어요. 링크 공유를 이용해주세요.'); return; }
+  const url = resultLink();
+  const nick = cleanNick($('nick').value);
+  const top = bestOverall();
+  const others = shareableGroups()
+    .filter((g) => g.ranked[0] !== top)
+    .map((g) => `${displayName(g.ranked[0], g.category)} ${g.ranked[0].pct}%`)
+    .join(' · ');
+  try {
+    K.Share.sendDefault({
+      objectType: 'feed',
+      content: {
+        title: top ? `${nick || '나'}, ${top.name} ${top.pct}% 닮았대 ㅋㅋ` : '너는 누구 닮았어? AI 닮은꼴 찾기',
+        description: others || '사진 한 장으로 닮은 연예인·캐릭터·동물상 찾기',
+        imageUrl: top?.img || 'https://' + SITE_URL + '/og.png',
+        link: { mobileWebUrl: url, webUrl: url },
+      },
+      buttons: [
+        { title: '결과 보기', link: { mobileWebUrl: url, webUrl: url } },
+        { title: '나도 해보기', link: { mobileWebUrl: 'https://' + SITE_URL + '/', webUrl: 'https://' + SITE_URL + '/' } },
+      ],
+    });
+  } catch (e) {
+    console.error(e);
+    alert('카카오톡 공유를 열지 못했어요. 링크 공유를 이용해주세요.');
+  }
+});
+
 /* ---------------- 결과 링크 (친구가 열면 내 결과 + 나도 해보기) ---------------- */
 // 링크에는 카테고리별 1위의 이름과 퍼센트만 담고, 사진은 절대 담지 않음
 const cleanNick = (v) => String(v || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 12);

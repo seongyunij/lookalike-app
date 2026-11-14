@@ -12,7 +12,9 @@
   <meta property="og:url" content="https://seongyunij.github.io/lookalike-app/" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="theme-color" content="#ff6b6b" />
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="icon" type="image/png" href="icon-128.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body>
   <header class="top">
@@ -79,7 +81,10 @@
         <button id="btnStory" class="btn primary block">📸 인스타 스토리용 결과 이미지 만들기</button>
         <input id="nick" class="input" placeholder="내 이름·별명 (선택) — 공유 링크에 '○○의 결과'로 표시돼요" maxlength="12" />
         <div class="row">
-          <button id="btnShareLink" class="btn">🔗 친구에게 링크 공유</button>
+          <button id="btnKakao" class="btn kakao">💬 카카오톡으로 보내기</button>
+        </div>
+        <div class="row">
+          <button id="btnShareLink" class="btn">🔗 링크 공유·복사</button>
           <button id="btnRetry" class="btn">🔄 다시 하기</button>
         </div>
       </div>
@@ -137,6 +142,7 @@
   </footer>
 
   <canvas id="work" hidden></canvas>
-  <script type="module" src="app.js?v=5"></script>
+  <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
