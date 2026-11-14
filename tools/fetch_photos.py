@@ -28,7 +28,7 @@ FACES = CACHE / "faces"
 RAW = CACHE / "raw"
 FACES.mkdir(parents=True, exist_ok=True)
 RAW.mkdir(parents=True, exist_ok=True)
-UA = {"User-Agent": "lookalike-app-builder/1.0 (open-source hobby project)"}
+UA = {"User-Agent": "lookalike-app-builder/1.0 (https://github.com/seongyunij/lookalike-app; low-rate batch for face matching data)"}
 MAX_PER = int(sys.argv[2]) if len(sys.argv) > 2 else 10
 detector = cv2.FaceDetectorYN.create(sys.argv[1], "", (320, 320), 0.8)
 
@@ -38,8 +38,8 @@ def get(url, **kw):
         r = requests.get(url, headers=UA, timeout=30, **kw)
         if r.status_code != 429:
             return r
-        print(f"  (요청 제한 429 → {10 * (attempt + 1)}초 대기) {url[:70]}", flush=True)
-        time.sleep(10 * (attempt + 1))
+        print(f"  (요청 제한 429 → {30 * (attempt + 1)}초 대기) {url[:70]}", flush=True)
+        time.sleep(30 * (attempt + 1))
     return r
 
 
@@ -79,7 +79,7 @@ SKIP = ("signature", "video", "audio", "logo", "album", "cover", "art", "fan", "
         "filmography", "family", "uniform", "costume", "wax", "statue", "drawing", "poster", "screenshot")
 
 
-def commons_files(cat, want=60, max_cats=25):
+def commons_files(cat, want=25, max_cats=8):
     """커먼즈 분류와 하위 분류(연도별·행사별)를 넓게 훑어 사진 URL을 모음"""
     queue, seen, titles = ["Category:" + cat], set(), []
     while queue and len(seen) < max_cats and len(titles) < want:
@@ -100,7 +100,7 @@ def commons_files(cat, want=60, max_cats=25):
                 subs.append(t)
         # 최근 연도 분류를 먼저 (요즘 얼굴과 비슷하도록)
         queue.extend(sorted(subs, reverse=True))
-        time.sleep(0.3)
+        time.sleep(1.0)
     urls = []
     for k in range(0, min(len(titles), want), 50):
         j = get("https://commons.wikimedia.org/w/api.php", params={
@@ -116,7 +116,7 @@ def commons_files(cat, want=60, max_cats=25):
             url = ii["url"].split("?")[0]
             base, name = url.rsplit("/", 1)
             urls.append(base.replace("/commons/", "/commons/thumb/", 1) + f"/{name}/500px-{name}")
-        time.sleep(0.3)
+        time.sleep(1.0)
     return urls
 
 
@@ -142,7 +142,9 @@ def face_crop(img):
     return canvas.resize((256, 256), Image.BICUBIC)
 
 
-people = [(cat, ko, wiki or en) for cat, kind, items in CATEGORIES if kind == "person" for ko, en, wiki in items]
+ONLY = [c for c in (sys.argv[3].split(",") if len(sys.argv) > 3 else []) if c]  # 예: "한국 연예인,한국 배우"
+people = [(cat, ko, wiki or en) for cat, kind, items in CATEGORIES if kind == "person" and (not ONLY or cat in ONLY)
+          for ko, en, wiki in items]
 idx_path = FACES / "index.json"
 index = json.loads(idx_path.read_text("utf-8")) if idx_path.exists() else {}
 print('위키데이터에서 커먼즈 분류 찾는 중…', flush=True)
@@ -165,7 +167,7 @@ for n, (cat, ko, title) in enumerate(people, 1):
             if not r.ok:
                 continue
             raw.write_bytes(r.content)
-            time.sleep(0.8)
+            time.sleep(1.5)
         try:
             img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw.read_bytes()))).convert("RGB")
         except Exception:  # noqa: BLE001

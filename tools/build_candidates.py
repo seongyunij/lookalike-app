@@ -35,7 +35,7 @@ FACE_USED = {}
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "tools" / ".cache"
 CACHE.mkdir(parents=True, exist_ok=True)
-UA = {"User-Agent": "lookalike-app-builder/1.0 (open-source hobby project)"}
+UA = {"User-Agent": "lookalike-app-builder/1.0 (https://github.com/seongyunij/lookalike-app; low-rate batch for face matching data)"}
 MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
 STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
 
@@ -151,7 +151,7 @@ for cat, kind, items in CATEGORIES:
         # 사람: 커먼즈에서 모은 얼굴 사진이 2장 이상이면 그 평균을 대표 이미지 벡터로 사용
         faces = face_images(wiki or en, FACE_INDEX) if kind == "person" else []
         if img_e is not None and len(faces) >= 2:
-            img_e, kept = robust_mean([image_embed(im) for _, im in faces])
+            img_e, kept = robust_mean([image_embed(im) for _, im in faces] + [img_e])  # 커먼즈 얼굴들 + 위키 대표 얼굴
             FACE_USED[ko] = len(kept)
         entries.append(dict(ko=ko, en=en, wiki=wiki or en, thumb=thumb, t=t, i=img_e))
 

@@ -885,7 +885,7 @@ function unpack(b64, scale) {
   return v;
 }
 
-const builtinReady = fetch('candidates.json')
+const builtinReady = fetch('candidates.json?v=8')
   .then((r) => r.json())
   .then((d) =>
     d.candidates.map((c) => ({ name: c.name, category: c.category, img: c.img, wiki: c.wiki, g: c.g, t: unpack(c.t, c.ts), i: unpack(c.i, c.is) }))

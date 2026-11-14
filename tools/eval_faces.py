@@ -1,27 +1,32 @@
-"""정확도 측정: '처음 보는 사진'으로 그 사람을 몇 위에 찾는지.
+"""정확도 측정: AI가 '처음 보는 사진'으로 그 사람을 몇 위에 찾는지.
 
-각 인물의 얼굴 사진을 하나씩 질문 사진으로 쓰고(그 사진은 후보 쪽에서 제외 = leave-one-out),
-같은 카테고리 후보들 중 정답 인물의 순위를 잰다. 앱과 같은 점수식(텍스트·이미지 z점수 가중합)을 사용.
+질문 사진 = 커먼즈에서 모은 그 사람의 얼굴 사진(위키백과 대표 사진과 같은 사진은 제외).
+같은 카테고리 후보들 중 정답 인물의 순위를 잰다. 점수식은 앱과 동일(텍스트·이미지 z점수 가중합),
+질문 사진은 앱처럼 4가지(원본·좌우반전·확대 2종) 평균으로 분석.
 
-비교:
-  기존  = 위키백과 대표 사진 1장(가운데 자르기) [candidates.json 의 i]
-  개선  = 커먼즈 얼굴 사진 여러 장의 평균 (질문 사진 제외)
+비교하는 후보 이미지 벡터:
+  A 개선 전   = 위키백과 대표 사진 전체 1장       (tools/.cache/candidates_before.json)
+  B 현재 배포 = 위키백과 대표 사진의 얼굴만 1장   (candidates.json)
+  C 다중 평균 = 커먼즈 얼굴 사진 여러 장 + B의 평균 (질문 사진은 제외하고 평균 = leave-one-out)
 
 사용법: python tools/eval_faces.py <CLIP 모델 폴더>
 """
 import base64
+import re
 import json
 import sys
 from pathlib import Path
 from urllib.parse import unquote
 
 import numpy as np
+from PIL import ImageOps
 
 sys.path.insert(0, str(Path(__file__).parent))
 from build_helpers import image_embed  # noqa: E402
 from face_gallery import face_images, load_index, robust_mean  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+W_TEXT = {"한국 연예인": 0.3, "한국 배우": 0.3}
 
 
 def unpack(b64, scale):
@@ -33,56 +38,91 @@ def z(a):
 
 
 def fname(url):
-    # .../commons/thumb/a/ab/File_name.jpg/500px-File_name.jpg → File_name.jpg
     parts = unquote(url.split("?")[0]).split("/")
     return parts[-2] if "thumb" in parts else parts[-1]
 
 
-cands = json.loads((ROOT / "candidates.json").read_text("utf-8"))["candidates"]
+def event_key(url):
+    """같은 행사에서 찍은 연속 사진 묶기: 파일 이름 끝의 번호·확장자를 떼어낸 앞부분"""
+    n = fname(url).rsplit(".", 1)[0]
+    n = re.sub(r"[\s_\-]*\(?\d{1,4}\)?$", "", n)
+    return re.sub(r"[\s_\-]+", "_", n).lower()
+
+
+def tta(img):
+    """앱과 같은 4가지 평균"""
+    vs = []
+    for flip in (False, True):
+        for zoom in (1.0, 0.9):
+            im = ImageOps.mirror(img) if flip else img
+            n = im.size[0]
+            s = n * zoom
+            o = (n - s) / 2
+            vs.append(image_embed(im.crop((o, o, o + s, o + s))))
+    m = np.mean(vs, 0)
+    return m / np.linalg.norm(m)
+
+
+new = {c["name"]: c for c in json.loads((ROOT / "candidates.json").read_text("utf-8"))["candidates"]}
+old = {c["name"]: c for c in json.loads((ROOT / "tools/.cache/candidates_before.json").read_text("utf-8"))["candidates"]}
 index = load_index()
-by_title = {v["name"]: t for t, v in index.items()}
+title_of = {v["name"]: t for t, v in index.items()}
 
 cats = {}
-for c in cands:
-    if c.get("g"):  # 사람 카테고리만
-        cats.setdefault(c["category"], []).append(c)
+for c in new.values():
+    if c.get("g"):
+        cats.setdefault(c["category"], []).append(c["name"])
 
-W_TEXT_OLD = {"한국 연예인": 0.3, "한국 배우": 0.3}
-results = {}
-for cat, items in cats.items():
-    T = np.stack([unpack(c["t"], c["ts"]) for c in items])
-    I_old = np.stack([unpack(c["i"], c["is"]) for c in items])
-    faces = {}
-    for k, c in enumerate(items):
-        title = by_title.get(c["name"])
-        imgs = face_images(title, index) if title else []
-        faces[k] = [(src, image_embed(im)) for src, im in imgs]
-    full = {}
-    for k, fl in faces.items():
-        full[k] = robust_mean([e for _, e in fl])[0] if len(fl) >= 2 else I_old[k]
-
-    stats = {name: [] for name in ["기존", "개선(text0.3)", "개선(text0.15)", "개선(text0)"]}
-    for k, c in enumerate(items):
+summary = []
+for cat, names in cats.items():
+    T = np.stack([unpack(new[n]["t"], new[n]["ts"]) for n in names])
+    A = np.stack([unpack(old[n]["i"], old[n]["is"]) for n in names])
+    B = np.stack([unpack(new[n]["i"], new[n]["is"]) for n in names])
+    faces = []
+    for n in names:
+        imgs = face_images(title_of[n], index) if n in title_of else []
+        faces.append([(src, img) for src, img in imgs])
+    gal = [[image_embed(img) for _, img in fl] for fl in faces]  # 갤러리용(단일)
+    C_full = np.stack([robust_mean(g + [B[k]])[0] if len(g) >= 2 else B[k] for k, g in enumerate(gal)])
+    wt = W_TEXT.get(cat, 0.5)
+    ranks = {"A 개선 전": [], "B 현재 배포": [], "C 다중 평균": [], "C 엄격(같은 행사 제외)": []}
+    people = 0
+    for k, n in enumerate(names):
         fl = faces[k]
-        if len(fl) < 3:
+        if len(fl) < 2:
             continue
-        wiki_file = fname(c["img"])
-        for qi, (src, q) in enumerate(fl):
+        people += 1
+        wiki_file = fname(new[n]["img"])
+        for qi, (src, img) in enumerate(fl):
             if fname(src) == wiki_file:
-                continue  # 위키 대표 사진과 같은 사진은 기존 방식에 불공평하게 유리하므로 제외
+                continue
+            q = tta(img)
             zt = z(T @ q)
-            wt_old = W_TEXT_OLD.get(cat, 0.5)
-            s_old = wt_old * zt + (1 - wt_old) * z(I_old @ q)
-            stats["기존"].append(int((s_old > s_old[k]).sum()) + 1)
-            I_new = np.stack([full[j] for j in range(len(items))])
-            I_new[k] = robust_mean([e for i, (_, e) in enumerate(fl) if i != qi])[0]
-            zi = z(I_new @ q)
-            for wt, name in [(0.3, "개선(text0.3)"), (0.15, "개선(text0.15)"), (0.0, "개선(text0)")]:
-                s = wt * zt + (1 - wt) * zi
-                stats[name].append(int((s > s[k]).sum()) + 1)
-    results[cat] = stats
-    n = len(stats["기존"])
-    print(f"\n[{cat}] 후보 {len(items)}명, 질문 사진 {n}장")
-    for name, ranks in stats.items():
-        r = np.array(ranks)
-        print(f"  {name:14s} 1위 {np.mean(r == 1) * 100:5.1f}%  3위안 {np.mean(r <= 3) * 100:5.1f}%  5위안 {np.mean(r <= 5) * 100:5.1f}%  평균순위 {r.mean():.1f}")
+            for key, G in (("A 개선 전", A), ("B 현재 배포", B)):
+                s = wt * zt + (1 - wt) * z(G @ q)
+                ranks[key].append(int((s > s[k]).sum()) + 1)
+            C = C_full.copy()
+            rest = [e for i, e in enumerate(gal[k]) if i != qi]
+            C[k] = robust_mean(rest + [B[k]])[0]
+            s = wt * zt + (1 - wt) * z(C @ q)
+            ranks["C 다중 평균"].append(int((s > s[k]).sum()) + 1)
+            ek = event_key(src)
+            strict = [e for i, e in enumerate(gal[k]) if i != qi and event_key(fl[i][0]) != ek]
+            C2 = C_full.copy()
+            C2[k] = robust_mean(strict + [B[k]])[0] if strict else B[k]
+            s2 = wt * zt + (1 - wt) * z(C2 @ q)
+            ranks["C 엄격(같은 행사 제외)"].append(int((s2 > s2[k]).sum()) + 1)
+    nq = len(ranks["A 개선 전"])
+    line = [f"\n[{cat}] 후보 {len(names)}명 · 시험 인물 {people}명 · 처음 보는 사진 {nq}장"]
+    for key, r in ranks.items():
+        r = np.array(r)
+        if len(r):
+            line.append(f"  {key:14s}  1위 적중 {np.mean(r == 1) * 100:5.1f}%   3위 안 {np.mean(r <= 3) * 100:5.1f}%   5위 안 {np.mean(r <= 5) * 100:5.1f}%   평균 순위 {r.mean():4.1f}")
+    print("\n".join(line), flush=True)
+    summary.append({"category": cat, "people": people, "queries": nq,
+                    **{k: {"top1": float(np.mean(np.array(v) == 1)) if v else None,
+                           "top3": float(np.mean(np.array(v) <= 3)) if v else None,
+                           "top5": float(np.mean(np.array(v) <= 5)) if v else None,
+                           "mean_rank": float(np.mean(v)) if v else None} for k, v in ranks.items()}})
+
+(ROOT / "tools/.cache/eval_result.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), "utf-8")

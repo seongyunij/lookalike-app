@@ -23,3 +23,13 @@ GitHub Pages는 파일을 약 10분간 캐시한다. `app.js`나 `style.css`를 
 - 앱: Google MediaPipe BlazeFace(`models/blaze_face_short_range.tflite`, Apache-2.0)로 사용자 사진의 얼굴을 찾아 원 안에 자동으로 맞춘다.
 - 후보 데이터: OpenCV YuNet으로 위키 사진에서 얼굴만 잘라 임베딩한다 (`python tools/build_candidates.py <CLIP 폴더> <yunet.onnx>`).
 - 두 검출기의 상자 크기 차이는 실측(0.817배)으로 보정했다 (`app.js`의 `FACE_BOX_SCALE`).
+
+## 정확도 측정 (2026-11-14, `python tools/eval_faces.py <CLIP 폴더>`)
+처음 보는 사진(커먼즈 얼굴 사진, 위키 대표 사진과 같은 행사 사진은 비교 대상에서 제외)으로 정답 인물을 1위로 찾는 비율.
+
+| 카테고리 | 개선 전 (위키 사진 1장) | 얼굴 크롭 1장 | 얼굴 여러 장 평균 (현재) |
+|---|---|---|---|
+| 한국 연예인 (212장) | 38.7% | 42.0% | **53.8%** |
+| 한국 배우 (197장) | 29.4% | 31.5% | **41.6%** |
+
+후보 사진 수집: `python tools/fetch_photos.py <yunet.onnx> 5 "한국 연예인,한국 배우"` (위키미디어 커먼즈, 1.5초에 1장, 연락처 포함 UA)
