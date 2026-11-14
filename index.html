@@ -28,7 +28,13 @@
 
   <!-- 닮은꼴 찾기 -->
   <main id="tab-find" class="panel">
-    <section class="card">
+    <section id="friendCard" class="card friend" hidden>
+      <h2 id="friendTitle"></h2>
+      <div id="friendList" class="friend-list"></div>
+      <button id="btnTryMe" class="btn primary block">나도 해보기 👉</button>
+    </section>
+
+    <section id="findCard" class="card">
       <div class="camera-box">
         <video id="video" playsinline muted></video>
         <img id="preview" alt="" hidden />
@@ -69,7 +75,9 @@
       <h2>나의 닮은꼴 결과</h2>
       <div id="resultList"></div>
       <div class="share-box">
+        <div id="compare" class="compare" hidden></div>
         <button id="btnStory" class="btn primary block">📸 인스타 스토리용 결과 이미지 만들기</button>
+        <input id="nick" class="input" placeholder="내 이름·별명 (선택) — 공유 링크에 '○○의 결과'로 표시돼요" maxlength="12" />
         <div class="row">
           <button id="btnShareLink" class="btn">🔗 친구에게 링크 공유</button>
           <button id="btnRetry" class="btn">🔄 다시 하기</button>

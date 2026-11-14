@@ -388,6 +388,7 @@ async function renderResults() {
     }
     list.appendChild(el);
   });
+  renderCompare();
 }
 
 const displayName = (r, category) => (category === '동물' ? `${r.name}상` : r.name);
@@ -519,19 +520,105 @@ $('btnStory').addEventListener('click', async () => {
 });
 
 $('btnShareLink').addEventListener('click', async () => {
-  const url = 'https://' + SITE_URL + '/';
-  const top = lastResult?.groups[0]?.ranked[0];
-  const text = top ? `나 ${top.name} ${top.pct}% 닮았대 ㅋㅋ 너는 누구 닮았어?` : '사진 한 장으로 닮은꼴 연예인·캐릭터·동물 찾기!';
+  const url = resultLink();
+  const nick = cleanNick($('nick').value);
+  const top = bestOverall();
+  const text = top
+    ? `${nick ? nick + ' ' : '나 '}${top.name} ${top.pct}% 닮았대 ㅋㅋ 너는 누구 닮았어?`
+    : '사진 한 장으로 닮은꼴 연예인·캐릭터·동물 찾기!';
   if (navigator.share) {
     try { await navigator.share({ title: '닮은꼴 찾기', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   try {
-    await navigator.clipboard.writeText(`${text} ${url}`);
-    alert('링크를 복사했어요! 친구에게 붙여넣기 해주세요.');
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    alert('내 결과 링크를 복사했어요! 친구에게 붙여넣기 해주세요.');
   } catch {
     prompt('아래 링크를 복사해주세요', url);
   }
 });
+
+/* ---------------- 결과 링크 (친구가 열면 내 결과 + 나도 해보기) ---------------- */
+// 링크에는 카테고리별 1위의 이름과 퍼센트만 담고, 사진은 절대 담지 않음
+const cleanNick = (v) => String(v || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 12);
+
+function shareableGroups() {
+  return (lastResult?.groups || []).filter((g) => g.category !== '내가 추가한 후보');
+}
+
+function bestOverall() {
+  const gs = shareableGroups().filter((g) => g.category !== '동물');
+  return gs.map((g) => g.ranked[0]).sort((a, b) => b.pct - a.pct)[0] || null;
+}
+
+function resultLink() {
+  const base = 'https://' + SITE_URL + '/';
+  const gs = shareableGroups();
+  if (!gs.length) return base;
+  const p = new URLSearchParams();
+  p.set('r', gs.map((g) => `${g.ranked[0].name}:${g.ranked[0].pct}`).join('|'));
+  const nick = cleanNick($('nick').value);
+  if (nick) p.set('n', nick);
+  return base + '?' + p.toString();
+}
+
+let friendResult = null; // [{ name, pct, category, img }]
+
+async function loadFriendResult() {
+  const p = new URLSearchParams(location.search);
+  const r = p.get('r');
+  if (!r) return;
+  const byName = new Map((await builtinReady).map((c) => [c.name, c]));
+  const items = r.split('|').slice(0, 8).map((part) => {
+    const k = part.lastIndexOf(':');
+    const c = byName.get(part.slice(0, k));
+    const pct = Math.round(Number(part.slice(k + 1)));
+    return c && pct >= 0 && pct <= 100 ? { name: c.name, pct, category: c.category, img: c.img } : null;
+  }).filter(Boolean);
+  if (!items.length) return;
+  friendResult = items;
+  const nick = cleanNick(p.get('n'));
+  $('friendTitle').textContent = `${nick || '친구'}의 닮은꼴 결과 👀`;
+  const list = $('friendList');
+  list.innerHTML = '';
+  for (const it of items) {
+    const el = document.createElement('div');
+    el.className = 'friend-item';
+    el.innerHTML = '<img alt="" referrerpolicy="no-referrer" /><div class="fc"></div><div class="fn"></div><div class="fp"></div>';
+    el.querySelector('img').src = it.img;
+    el.querySelector('.fc').textContent = it.category;
+    el.querySelector('.fn').textContent = displayName(it, it.category);
+    el.querySelector('.fp').textContent = it.pct + '%';
+    list.appendChild(el);
+  }
+  $('friendCard').hidden = false;
+}
+
+$('btnTryMe').addEventListener('click', () => {
+  const card = $('findCard');
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.remove('highlight');
+  void card.offsetWidth;
+  card.classList.add('highlight');
+});
+
+// 내 결과가 나오면 링크를 보내준 친구 결과와 비교
+function renderCompare() {
+  const box = $('compare');
+  if (!friendResult || !lastResult) { box.hidden = true; return; }
+  const mine = new Map(shareableGroups().map((g) => [g.category, g.ranked[0]]));
+  const same = friendResult.filter((f) => mine.get(f.category)?.name === f.name);
+  const nick = cleanNick(new URLSearchParams(location.search).get('n')) || '친구';
+  // 받침 있으면 '이랑', 없으면 '랑' (예: 준혁이랑, 민수랑)
+  const code = nick.charCodeAt(nick.length - 1) - 0xac00;
+  const with_ = nick + (code >= 0 && code < 11172 && code % 28 ? '이랑' : '랑');
+  const lines = same.length
+    ? same.map((f) => `🤝 ${with_} 둘 다 <b></b> 닮은꼴!`)
+    : [`${with_} 겹치는 닮은꼴은 없어요. 완전 다른 스타일! 😆`];
+  box.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+  same.forEach((f, i) => { box.children[i].querySelector('b').textContent = displayName(f, f.category); });
+  box.hidden = false;
+}
+
 
 const KOREAN = new Set(['한국 연예인', '한국 배우']);
 
@@ -717,3 +804,6 @@ $('importFile').addEventListener('change', async (e) => {
 });
 
 renderCands();
+loadFriendResult();
+try { $('nick').value = localStorage.getItem('nick') || ''; } catch {}
+$('nick').addEventListener('change', () => { try { localStorage.setItem('nick', cleanNick($('nick').value)); } catch {} });

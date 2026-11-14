@@ -98,3 +98,15 @@ h2 { margin: 0 0 12px; font-size: 18px; }
 
 .policy h3 { font-size: 16px; margin: 18px 0 6px; }
 .policy p { font-size: 14px; line-height: 1.7; }
+
+.friend { border: 2px solid var(--accent2); }
+.friend h2 { text-align: center; }
+.friend-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.friend-item { text-align: center; font-size: 13px; }
+.friend-item img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 12px; display: block; background: var(--line); }
+.friend-item .fc { color: var(--accent2); font-size: 11px; margin-top: 4px; }
+.friend-item .fn { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend-item .fp { color: var(--accent); font-weight: 800; }
+.compare { background: #f3f0ff; border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; line-height: 1.6; }
+.highlight { animation: pulse 1.2s ease 2; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(255,107,107,.35); } }
