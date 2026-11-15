@@ -12,7 +12,20 @@
   <meta property="og:url" content="https://seongyunij.github.io/lookalike-app/" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="theme-color" content="#ff6b6b" />
-  <!-- 방문 통계 (Google Analytics 4). 결과 링크의 이름·별명(r, n)은 통계로 보내지 않음 -->
+  <!-- 결과 링크의 이름·별명(r, n)은 앱 안에서만 쓰고, 통계 등 외부로 나가지 않게 주소창에서 먼저 지움 -->
+  <script>
+    window.__shareQuery = location.search;
+    (function () {
+      var p = new URLSearchParams(location.search);
+      if (p.has('r') || p.has('n')) {
+        p.delete('r');
+        p.delete('n');
+        p.set('from', 'friend_link');
+        history.replaceState(null, '', location.pathname + '?' + p.toString() + location.hash);
+      }
+    })();
+  </script>
+  <!-- 방문 통계 (Google Analytics 4) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-4RHT8JYM0M"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
@@ -20,17 +33,11 @@
     gtag('js', new Date());
     // 개발용 PC(localhost)에서의 테스트 방문은 통계에서 제외
     if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') window['ga-disable-G-4RHT8JYM0M'] = true;
-    (function () {
-      var p = new URLSearchParams(location.search), keep = new URLSearchParams();
-      p.forEach(function (v, k) { if (k.indexOf('utm_') === 0) keep.set(k, v); });
-      if (p.has('r')) keep.set('from', 'friend_link');
-      var q = keep.toString();
-      gtag('config', 'G-4RHT8JYM0M', { page_location: location.origin + location.pathname + (q ? '?' + q : '') });
-    })();
+    gtag('config', 'G-4RHT8JYM0M');
   </script>
   <link rel="icon" type="image/png" href="icon-128.png" />
   <link rel="apple-touch-icon" href="icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=9" />
+  <link rel="stylesheet" href="style.css?v=10" />
 </head>
 <body>
   <header class="top">
@@ -159,6 +166,6 @@
 
   <canvas id="work" hidden></canvas>
   <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js" crossorigin="anonymous"></script>
-  <script type="module" src="app.js?v=9"></script>
+  <script type="module" src="app.js?v=10"></script>
 </body>
 </html>

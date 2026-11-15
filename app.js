@@ -757,7 +757,7 @@ function resultLink(source) {
 let friendResult = null; // [{ name, pct, category, img }]
 
 async function loadFriendResult() {
-  const p = new URLSearchParams(location.search);
+  const p = new URLSearchParams(window.__shareQuery || location.search);
   const r = p.get('r');
   if (!r) return;
   const byName = new Map((await builtinReady).map((c) => [c.name, c]));
@@ -802,7 +802,7 @@ function renderCompare() {
   if (!friendResult || !lastResult) { box.hidden = true; return; }
   const mine = new Map(shareableGroups().map((g) => [g.category, g.ranked[0]]));
   const same = friendResult.filter((f) => mine.get(f.category)?.name === f.name);
-  const nick = cleanNick(new URLSearchParams(location.search).get('n')) || '친구';
+  const nick = cleanNick(new URLSearchParams(window.__shareQuery || location.search).get('n')) || '친구';
   // 받침 있으면 '이랑', 없으면 '랑' (예: 준혁이랑, 민수랑)
   const code = nick.charCodeAt(nick.length - 1) - 0xac00;
   const with_ = nick + (code >= 0 && code < 11172 && code % 28 ? '이랑' : '랑');
