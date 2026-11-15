@@ -8,6 +8,8 @@ import {
 const MODEL_ID = 'Xenova/clip-vit-base-patch32';
 const IMG_SIZE = 256; // 저장/분석용 정사각형 크기
 const $ = (id) => document.getElementById(id);
+// 방문 통계 이벤트 (사진·닮은꼴 이름 같은 결과 내용은 보내지 않음)
+const track = (name, params = {}) => { try { window.gtag?.('event', name, params); } catch {} };
 
 /* ---------------- AI 모델 ---------------- */
 let processor, model;
@@ -428,6 +430,7 @@ async function analyze(dataUrl, { skipFaceCheck = false } = {}) {
   // 1) 얼굴이 제대로 들어왔는지 확인
   const faces = await runStep(0, async () => (skipFaceCheck ? null : detectFaces(await loadImg(dataUrl))));
   if (faces && faces.length === 0) {
+    track('face_not_found');
     list.innerHTML = `<div class="warn"><b>얼굴을 찾지 못했어요 😢</b><p>얼굴이 원 안에 크게, 정면으로 들어오게 다시 맞추면 결과가 훨씬 정확해져요.</p>
       <div class="row"><button class="btn primary" id="btnReadjust">다시 맞추기</button><button class="btn" id="btnForce">그래도 분석하기</button></div></div>`;
     $('btnReadjust').onclick = () => { if (ed.img) openEditor(ed.img); else $('cameraPlaceholder').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -446,6 +449,7 @@ async function analyze(dataUrl, { skipFaceCheck = false } = {}) {
   renderSteps(STEPS.length, 100);
   await renderResults();
   $('shareBox').hidden = false;
+  track('analysis_complete', { gender_filter: genderFilter, from_friend_link: friendResult ? 'yes' : 'no' });
 }
 
 // 성별 필터: all | m | f  (사람 카테고리에만 적용)
@@ -650,9 +654,10 @@ $('btnStory').addEventListener('click', async () => {
     const file = new File([blob], '닮은꼴_결과.png', { type: 'image/png' });
     // 폰: 공유 시트(인스타그램·카톡 등)로 바로 보내기 / PC: 파일 저장
     if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: '나의 닮은꼴 결과' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+      try { await navigator.share({ files: [file], title: '나의 닮은꼴 결과' }); track('share', { method: 'story_image' }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }
     downloadBlob(blob, file.name);
+    track('share', { method: 'story_image_download' });
   } catch (e) {
     console.error(e);
     alert('이미지를 만들지 못했어요. 화면을 캡처해서 공유해주세요!');
@@ -662,17 +667,18 @@ $('btnStory').addEventListener('click', async () => {
 });
 
 $('btnShareLink').addEventListener('click', async () => {
-  const url = resultLink();
+  const url = resultLink('link');
   const nick = cleanNick($('nick').value);
   const top = bestOverall();
   const text = top
     ? `${nick ? nick + ' ' : '나 '}${top.name} ${top.pct}% 닮았대 ㅋㅋ 너는 누구 닮았어?`
     : '사진 한 장으로 닮은꼴 연예인·캐릭터·동물 찾기!';
   if (navigator.share) {
-    try { await navigator.share({ title: '닮은꼴 찾기', text, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ title: '닮은꼴 찾기', text, url }); track('share', { method: 'link' }); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   try {
     await navigator.clipboard.writeText(`${text}\n${url}`);
+    track('share', { method: 'link_copy' });
     alert('내 결과 링크를 복사했어요! 친구에게 붙여넣기 해주세요.');
   } catch {
     prompt('아래 링크를 복사해주세요', url);
@@ -693,7 +699,8 @@ function kakaoReady() {
 $('btnKakao').addEventListener('click', () => {
   const K = kakaoReady();
   if (!K) { alert('카카오톡 공유를 불러오지 못했어요. 링크 공유를 이용해주세요.'); return; }
-  const url = resultLink();
+  const url = resultLink('kakao');
+  const home = 'https://' + SITE_URL + '/?utm_source=kakao&utm_medium=share';
   const nick = cleanNick($('nick').value);
   const top = bestOverall();
   const others = shareableGroups()
@@ -711,9 +718,10 @@ $('btnKakao').addEventListener('click', () => {
       },
       buttons: [
         { title: '결과 보기', link: { mobileWebUrl: url, webUrl: url } },
-        { title: '나도 해보기', link: { mobileWebUrl: 'https://' + SITE_URL + '/', webUrl: 'https://' + SITE_URL + '/' } },
+        { title: '나도 해보기', link: { mobileWebUrl: home, webUrl: home } },
       ],
     });
+    track('share', { method: 'kakao' });
   } catch (e) {
     console.error(e);
     alert('카카오톡 공유를 열지 못했어요. 링크 공유를 이용해주세요.');
@@ -733,11 +741,13 @@ function bestOverall() {
   return gs.map((g) => g.ranked[0]).sort((a, b) => b.pct - a.pct)[0] || null;
 }
 
-function resultLink() {
+function resultLink(source) {
   const base = 'https://' + SITE_URL + '/';
   const gs = shareableGroups();
-  if (!gs.length) return base;
   const p = new URLSearchParams();
+  // 통계에서 어디로 공유된 링크로 들어왔는지 구분 (utm_source)
+  if (source) { p.set('utm_source', source); p.set('utm_medium', 'share'); }
+  if (!gs.length) return base + (source ? '?' + p.toString() : '');
   p.set('r', gs.map((g) => `${g.ranked[0].name}:${g.ranked[0].pct}`).join('|'));
   const nick = cleanNick($('nick').value);
   if (nick) p.set('n', nick);
@@ -759,6 +769,7 @@ async function loadFriendResult() {
   }).filter(Boolean);
   if (!items.length) return;
   friendResult = items;
+  track('friend_link_open');
   const nick = cleanNick(p.get('n'));
   $('friendTitle').textContent = `${nick || '친구'}의 닮은꼴 결과 👀`;
   const list = $('friendList');
@@ -777,6 +788,7 @@ async function loadFriendResult() {
 }
 
 $('btnTryMe').addEventListener('click', () => {
+  track('try_me_click');
   const card = $('findCard');
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   card.classList.remove('highlight');
